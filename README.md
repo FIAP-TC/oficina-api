@@ -110,6 +110,10 @@ em [`docs/OBSERVABILIDADE.md`](docs/OBSERVABILIDADE.md).
 docker compose logs -f --no-log-prefix api | jq -c '{level,event,route,status,duration_ms,request_id}'
 ```
 
+A API também expõe duas sondas de saúde, consultadas pelas probes do Kubernetes:
+`GET /api/health` (o processo está vivo) e `GET /api/health/ready` (o pod consegue atender,
+banco incluído). A diferença entre as duas, e por que ela importa, está no mesmo documento.
+
 ## Infraestrutura, Kubernetes e Terraform
 
 A documentação de infraestrutura (arquitetura, Kubernetes local/AWS, provisionamento via Terraform e CI/CD) está em [`docs/INFRAESTRUTURA.md`](docs/INFRAESTRUTURA.md).
