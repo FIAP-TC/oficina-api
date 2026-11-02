@@ -64,9 +64,17 @@ e-mail) na linha de JSON já pronta, que é o que alcança o conteúdo de exceç
 ficam com os dois últimos dígitos à vista — o suficiente para conferir um cadastro com o
 cliente ao telefone.
 
-**5. Nada de corpo de requisição nem de query string no log.** A query string carrega o token
-de aprovação da ordem de serviço (`GET /api/service-orders/approve?token=...`), então o Nginx
-registra só o caminho, antes do `?`.
+**5. Nada de corpo de requisição nem de query string no access log.** A query string carrega o
+token de aprovação da ordem de serviço (`GET /api/service-orders/approve?token=...`), então o
+Nginx registra só o caminho, antes do `?`.
+
+Isso vale para o access log, que é o log que esta decisão desenha. O **log de erro** do Nginx
+é outro: texto puro, e cada linha inclui a requisição original, com query string. A imagem
+oficial o configura no nível `notice`, que registra avisos benignos — um deles, "an upstream
+response is buffered to a temporary file", levou o token para o log num teste no cluster. O
+nível foi baixado para `error` e os buffers de FastCGI foram aumentados para que o aviso não
+aconteça, mas **a exposição é reduzida, não eliminada**: uma linha de `[error]` legítima
+continua carregando a query string. Ver as consequências.
 
 **6. Ruído fica fora do log.** O `/nginx_status`, consultado pelas probes do Kubernetes a
 cada 10 segundos em cada pod, seria o endpoint mais "acessado" da API; e o access log do
@@ -117,6 +125,13 @@ Laravel 8. Não resolveria nada desta fase mais cedo.
   divergirem, mas é duplicação.
 - O mascaramento por formato tem falso positivo: um telefone celular com DDD também tem 11
   dígitos e será mascarado como CPF. Aceitável — telefone também é dado pessoal.
+- **Limitação conhecida: o log de erro do Nginx ainda pode registrar a query string.** O
+  formato das linhas dele é do próprio Nginx e inclui a requisição original; não há como
+  pedir que ele omita a query. O nível `error` e os buffers maiores tiram do caminho a causa
+  observada (avisos benignos), e sobra o caso em que há um erro real de verdade. A correção
+  definitiva não é de observabilidade: é o token de aprovação deixar de viajar na query
+  string e passar a ir em cabeçalho ou no corpo, o que muda o contrato da API e o link
+  enviado ao cliente. Fica registrado para ser decidido à parte.
 - O stack trace registrado não inclui os argumentos das chamadas (o Monolog guarda apenas
   arquivo e linha). Perde-se um pouco na investigação, e ganha-se que o trace não vaza dado
   de cliente.
