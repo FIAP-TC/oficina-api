@@ -14,6 +14,10 @@ class Kernel extends HttpKernel
      * @var array<int, class-string|string>
      */
     protected $middleware = [
+        // Observabilidade primeiro: o identificador de correlação precisa existir antes de
+        // qualquer outro middleware poder gerar log ou erro.
+        \App\Interfaces\Http\Middleware\RequestIdMiddleware::class,
+        \App\Interfaces\Http\Middleware\RequestLoggerMiddleware::class,
         // \App\Http\Middleware\TrustHosts::class,
         \App\Http\Middleware\TrustProxies::class,
         \Fruitcake\Cors\HandleCors::class,

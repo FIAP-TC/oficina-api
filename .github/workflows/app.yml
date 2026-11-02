@@ -154,6 +154,23 @@ jobs:
         id: vars
         run: echo "tag=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
 
+      # A configuração do Nginx existe em duas cópias byte a byte idênticas: docker/nginx
+      # (montada pelo Docker Compose) e k8s/base/nginx (vira ConfigMap no cluster).
+      # Divergência entre elas é o tipo de erro que só aparece em produção.
+      - name: Conferir as duas cópias da configuração do Nginx
+        run: |
+          diff -u docker/nginx/default.conf k8s/base/nginx/default.conf
+          diff -u docker/nginx/sites-enabled/laravel.conf k8s/base/nginx/laravel.conf
+
+      # O Nginx resolve o nome do upstream já na leitura da configuração, e no runner não
+      # existe nenhum serviço "api": o --add-host faz o nome existir só para este teste.
+      - name: Validar a sintaxe da configuração do Nginx
+        run: |
+          docker run --rm --add-host api:127.0.0.1 \
+            -v "$PWD/docker/nginx/default.conf:/etc/nginx/conf.d/default.conf:ro" \
+            -v "$PWD/docker/nginx/sites-enabled/laravel.conf:/etc/nginx/sites-enabled/laravel.conf:ro" \
+            nginx:alpine nginx -t
+
       # Build sempre (pega Dockerfile quebrado já no PR); o push só acontece na main.
       - name: Build da imagem da API
         run: docker build --platform linux/amd64 -f docker/php-fmp/Dockerfile -t "$API_IMAGE:${{ steps.vars.outputs.tag }}" .

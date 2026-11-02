@@ -1,5 +1,6 @@
 <?php
 
+use App\Infrastructure\Observability\Logging\JsonLoggerFactory;
 use Monolog\Handler\NullHandler;
 use Monolog\Handler\StreamHandler;
 use Monolog\Handler\SyslogUdpHandler;
@@ -17,7 +18,10 @@ return [
     |
     */
 
-    'default' => env('LOG_CHANNEL', 'stack'),
+    // O padrão é o canal "json" (uma linha de JSON por registro, em stderr): é o formato
+    // que o Grafana Alloy coleta no cluster, e vale a pena ser igual em todo ambiente para
+    // que o log que se lê no desenvolvimento seja o mesmo que se lê em produção.
+    'default' => env('LOG_CHANNEL', 'json'),
 
     /*
     |--------------------------------------------------------------------------
@@ -48,6 +52,19 @@ return [
     */
 
     'channels' => [
+
+        /*
+         * Canal de observabilidade da aplicação (fase 2 do ADR-0002 do repositório
+         * infra-k8s). A montagem fica em JsonLoggerFactory, que documenta as três escolhas
+         * envolvidas: saída em stderr, formato JSON e mascaramento de dados pessoais.
+         */
+        'json' => [
+            'driver' => 'custom',
+            'via' => JsonLoggerFactory::class,
+            'level' => env('LOG_LEVEL', 'info'),
+            'name' => 'api',
+        ],
+
         'stack' => [
             'driver' => 'stack',
             'channels' => ['single'],
