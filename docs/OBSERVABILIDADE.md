@@ -1,15 +1,17 @@
-# Observabilidade da API — logs estruturados e correlação
+# Observabilidade da API — logs estruturados, correlação e sondas de saúde
 
-Esta é a documentação da **fase 2** do plano de observabilidade do projeto. O plano completo,
-com a escolha do Grafana Cloud e as fases 0 a 6, está no
+Esta é a documentação das **fases 2 e 3** do plano de observabilidade do projeto. O plano
+completo, com a escolha do Grafana Cloud e as fases 0 a 6, está no
 [ADR-0002 do `infra-k8s`](https://github.com/FIAP-TC/infra-k8s/blob/main/docs/adr/0002-observabilidade-com-grafana-cloud.md);
-as decisões desta fase, e as alternativas descartadas, estão em
-[`docs/adr/0002-logs-estruturados-e-correlacao.md`](adr/0002-logs-estruturados-e-correlacao.md).
+as decisões de cada fase, e as alternativas descartadas, estão em
+[`adr/0002-logs-estruturados-e-correlacao.md`](adr/0002-logs-estruturados-e-correlacao.md) e
+[`adr/0003-sondas-de-saude-e-probes.md`](adr/0003-sondas-de-saude-e-probes.md).
 
 - [O caminho de um log](#o-caminho-de-um-log)
 - [As duas linhas de cada requisição](#as-duas-linhas-de-cada-requisição)
 - [Correlação: o X-Request-Id](#correlação-o-x-request-id)
 - [O que nunca vai para o log](#o-que-nunca-vai-para-o-log)
+- [Sondas de saúde](#sondas-de-saúde)
 - [Como ler os logs](#como-ler-os-logs)
 - [Registrando um evento novo](#registrando-um-evento-novo)
 - [Onde cada peça fica](#onde-cada-peça-fica)
@@ -61,7 +63,7 @@ Elas não são redundantes: cada uma sabe algo que a outra não sabe.
 
 | Campo | O que é |
 |---|---|
-| `route` | **o padrão da rota**, não o caminho concreto. É o que permite agregar latência por endpoint: com `/api/customers/42` cada id viraria uma série separada no dashboard |
+| `route` | **o padrão da rota**, não o caminho concreto. É o que permite agregar latência por endpoint: com `/api/customers/42` cada id viraria uma série separada no dashboard. Vale `unmatched` quando a requisição não casou com rota nenhuma (um 404) — um valor explícito, e não `null`, para a série não sair sem nome no gráfico |
 | `duration_ms` | tempo dentro do Laravel, contado desde o início do boot do framework |
 | `user_id` | usuário autenticado pelo JWT, quando existe |
 | `event` | o tipo do registro. Toda linha estruturada tem um (ver [Registrando um evento novo](#registrando-um-evento-novo)) |
@@ -111,6 +113,7 @@ Na prática, para investigar um erro relatado por um cliente:
 | Token JWT em texto | fica `[REDACTED_JWT]` |
 | Argumentos das chamadas no stack trace | o trace guarda só arquivo e linha, que é o que interessa para investigar |
 | Requisições a `/nginx_status` | são as probes do Kubernetes, a cada 10 segundos em cada pod: seriam o "endpoint" mais acessado da API e gastariam a cota de ingestão com ruído |
+| Sondas de saúde que **passaram** | mesmo motivo. A que **falha** é registrada, porque é raro e é aí que a linha vale |
 
 O mascaramento acontece **na origem**, antes de a linha ser escrita, e não no Grafana: é a
 única forma de o dado pessoal nunca sair do processo. São duas camadas, porque uma só não
@@ -120,6 +123,60 @@ alcança tudo:
    array PHP. É o que pega `['password' => '...']` mesmo com valor sem formato reconhecível.
 2. `JsonLineFormatter` — olha o **formato** do valor, na linha de JSON já pronta. É o que
    pega um CPF solto na mensagem de uma exceção, onde não existe nome de campo nenhum.
+
+## Sondas de saúde
+
+Duas rotas, sem autenticação, usadas pelas probes do Kubernetes e pelo monitoramento
+sintético. **Elas respondem a perguntas diferentes, e é isso que importa:**
+
+| Rota | Pergunta | Checa banco? | Falha significa |
+|---|---|---|---|
+| `GET /api/health` | este processo travou? | **não** | o Kubernetes **reinicia** o pod |
+| `GET /api/health/ready` | este pod consegue atender agora? | sim (`SELECT 1`) | o pod **sai do balanceamento**, sem reiniciar |
+
+A sonda de vida não toca no banco de propósito. Se tocasse, uma queda do RDS faria o
+Kubernetes reiniciar **todos** os pods da API em laço — reiniciar não conserta um banco
+remoto, e cada pod novo ainda paga o custo de subir o framework do zero, atrasando a
+recuperação quando o banco volta. Dependência externa é assunto da prontidão, que tira o pod
+do tráfego e o devolve sozinho quando a dependência responde.
+
+```bash
+curl -s http://localhost/api/health        # {"status":"ok"}
+curl -s http://localhost/api/health/ready  # {"status":"ok","checks":{"database":true}}
+```
+
+Com o banco fora, a prontidão responde **503**:
+
+```json
+{"status":"unavailable","checks":{"database":false}}
+```
+
+O corpo diz qual checagem falhou, nunca a mensagem do driver — que traz host, usuário e porta.
+Esse detalhe fica no log, mascarado.
+
+### Por que as probes da API usam `exec` e não `httpGet`
+
+O container da API fala **FastCGI** na porta 9000, não HTTP: uma probe `httpGet` não consegue
+conversar com ele. Era por isso que as probes aqui eram `tcpSocket` — que só confirma que
+alguém aceita conexão na porta, e continua passando com o PHP incapaz de executar qualquer
+coisa.
+
+A imagem traz o `cgi-fcgi` (pacote `fcgi`, 131 KiB), um cliente FastCGI de linha de comando.
+A probe monta a requisição e fala o protocolo certo, exercitando PHP e Laravel de verdade:
+
+```bash
+REQUEST_METHOD=GET SCRIPT_NAME=/index.php \
+  SCRIPT_FILENAME=/var/www/public/index.php \
+  REQUEST_URI=/api/health/ready DOCUMENT_ROOT=/var/www/public \
+  cgi-fcgi -bind -connect 127.0.0.1:9000 | grep -q '"status":"ok"'
+```
+
+O `grep` não é enfeite: o `cgi-fcgi` sai com código 0 **mesmo quando a aplicação responde
+503**, então quem decide se a sonda passou é o corpo da resposta.
+
+O Nginx continua com probe que olha só o Nginx. Se ele ficasse "não pronto" porque a API caiu,
+seus pods sairiam do Service, o LoadBalancer ficaria sem destino e o cliente receberia falha
+de conexão — pior que um 502, que ao menos diz o que aconteceu.
 
 ## Como ler os logs
 
@@ -229,7 +286,11 @@ Três cuidados:
 | `.../Logging/RequestContextProcessor.php` | acrescenta `request_id`, `service` e `env` a toda linha |
 | `app/Infrastructure/Observability/RequestContext.php` | guarda o identificador e o início da requisição |
 | `app/Interfaces/Http/Middleware/RequestIdMiddleware.php` | define o identificador e devolve no cabeçalho da resposta |
-| `app/Interfaces/Http/Middleware/RequestLoggerMiddleware.php` | registra a linha `http_request`, depois da resposta |
+| `app/Interfaces/Http/Middleware/RequestLoggerMiddleware.php` | registra a linha `http_request`, depois da resposta; deixa de fora a sonda que passou |
+| `app/Interfaces/Http/Controllers/Health/LivenessController.php` | sonda de vida: só prova que o PHP executa e o Laravel sobe |
+| `app/Interfaces/Http/Controllers/Health/ReadinessController.php` | sonda de prontidão: checa o banco e responde 503 se ele não responde |
+| `k8s/base/06-api-deployment.yaml` | as probes por `exec` com `cgi-fcgi`, que falam FastCGI com a porta 9000 |
+| `docker/php-fmp/Dockerfile` | instala o pacote `fcgi`, que traz o cliente usado pelas probes |
 | `docker/nginx/sites-enabled/laravel.conf` | access log em JSON, identificador de correlação, `/nginx_status` fora do log |
 | `k8s/base/nginx/` | **cópia idêntica** da configuração do Nginx, que vira ConfigMap no cluster |
 | `docker/php-fmp/zz-tuning.conf` | garante que a saída do processo filho chegue limpa ao stdout do container |
@@ -256,6 +317,12 @@ compara as duas com `diff` e falha se divergirem, então a duplicação não pas
   não acontece mais; mas uma linha de `[error]` de verdade continua carregando a query string.
   A correção definitiva é o token sair da query string (cabeçalho ou corpo), o que muda o
   contrato da API e está em aberto. Enquanto isso: **não coloque segredo em query string.**
+- **`SELECT 1` não prova tudo.** Confirma que há conexão e que o servidor responde; não diz
+  que as tabelas existem nem que as migrations rodaram.
+- **O comando da probe é frágil a mudanças de caminho.** É uma linha de shell com variáveis de
+  ambiente do CGI dentro do manifest; se `/var/www/public` mudar, as probes param de passar.
 - **Nada de métricas ainda.** Latência e contagem são calculadas a partir dos logs, que é o
-  que a fase 2 entrega. Health check e probes de HTTP são a fase 3; dashboards prontos, a
-  fase 5.
+  que a fase 2 entrega. Eventos de negócio e alertas são a fase 4; dashboards prontos, a
+  fase 5; rastros distribuídos, a fase 6.
+- **Monitoramento sintético ainda não está ligado.** As sondas existem e têm endereço
+  estável; falta criar o check no Grafana Cloud, que é configuração da conta.

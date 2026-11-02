@@ -9,6 +9,8 @@ use App\Interfaces\Http\Controllers\Customer\DeleteCustomerController;
 use App\Interfaces\Http\Controllers\Customer\FindCustomerController;
 use App\Interfaces\Http\Controllers\Customer\ListCustomersController;
 use App\Interfaces\Http\Controllers\Customer\UpdateCustomerController;
+use App\Interfaces\Http\Controllers\Health\LivenessController;
+use App\Interfaces\Http\Controllers\Health\ReadinessController;
 use App\Interfaces\Http\Controllers\Product\CreateProductController;
 use App\Interfaces\Http\Controllers\Product\DecreaseStockController;
 use App\Interfaces\Http\Controllers\Product\DeleteProductController;
@@ -57,6 +59,14 @@ use Illuminate\Support\Facades\Route;
 |   Administrador > Gerente > Mecânico
 |
 */
+
+// Sondas de saúde, usadas pelas probes do Kubernetes e pelo monitoramento sintético.
+// Sem autenticação: quem pergunta é o kubelet, que não tem como se autenticar. Nenhuma das
+// duas revela informação interna — a resposta é "ok" ou o nome da checagem que falhou.
+Route::prefix('health')->group(function () {
+    Route::get('/', LivenessController::class);
+    Route::get('/ready', ReadinessController::class);
+});
 
 // Rota de teste (sem autenticação)
 Route::prefix('test')->group(function () {

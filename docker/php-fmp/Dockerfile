@@ -18,7 +18,13 @@ RUN composer install --optimize-autoloader --no-interaction
 
 FROM php:8.3-fpm-alpine
 
-RUN apk add --no-cache libzip icu-libs
+# fcgi traz o cgi-fcgi (131 KiB), um cliente FastCGI de linha de comando.
+#
+# É o que permite às probes do Kubernetes consultarem as sondas de saúde: este container fala
+# FastCGI na porta 9000, não HTTP, então uma probe `httpGet` não consegue conversar com ele —
+# era por isso que as probes aqui eram `tcpSocket`, que só confirma que alguém aceita conexão
+# na porta. Com o cgi-fcgi a probe executa a requisição de verdade, passando pelo PHP.
+RUN apk add --no-cache libzip icu-libs fcgi
 
 COPY --from=composer:latest /usr/bin/composer /usr/local/bin/composer
 

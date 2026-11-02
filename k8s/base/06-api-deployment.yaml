@@ -31,13 +31,46 @@ spec:
                 name: app-config
             - secretRef:
                 name: app-secret
+          # As probes abaixo usam `exec` com cgi-fcgi, e não `httpGet`, porque este container
+          # fala FastCGI na porta 9000 e não HTTP — uma probe httpGet não consegue conversar
+          # com ele. Antes eram `tcpSocket`, que só confirmava que alguém aceitava conexão
+          # na porta: com o PHP incapaz de subir o Laravel, ou com o banco fora, o pod
+          # continuava marcado como saudável e recebendo tráfego.
+          #
+          # O `grep` é essencial: o cgi-fcgi sai com código 0 mesmo quando a aplicação
+          # responde 503, então quem decide se a sonda passou é o corpo da resposta.
+
+          # Prontidão: este pod consegue atender agora? Checa o banco. Falhar aqui tira o pod
+          # do balanceamento sem reiniciá-lo, que é o certo quando a dependência é externa.
           readinessProbe:
-            tcpSocket:
-              port: 9000
+            exec:
+              command:
+                - sh
+                - -c
+                - >-
+                  REQUEST_METHOD=GET SCRIPT_NAME=/index.php
+                  SCRIPT_FILENAME=/var/www/public/index.php
+                  REQUEST_URI=/api/health/ready DOCUMENT_ROOT=/var/www/public
+                  cgi-fcgi -bind -connect 127.0.0.1:9000 | grep -q '"status":"ok"'
             initialDelaySeconds: 5
             periodSeconds: 10
+            timeoutSeconds: 5
+          # Vida: este processo travou? Não checa banco de propósito — reiniciar o pod não
+          # conserta um RDS fora, e o laço de reinícios atrasa a recuperação. Ver o
+          # LivenessController.
           livenessProbe:
-            tcpSocket:
-              port: 9000
+            exec:
+              command:
+                - sh
+                - -c
+                - >-
+                  REQUEST_METHOD=GET SCRIPT_NAME=/index.php
+                  SCRIPT_FILENAME=/var/www/public/index.php
+                  REQUEST_URI=/api/health DOCUMENT_ROOT=/var/www/public
+                  cgi-fcgi -bind -connect 127.0.0.1:9000 | grep -q '"status":"ok"'
             initialDelaySeconds: 15
             periodSeconds: 20
+            timeoutSeconds: 5
+            # Três falhas seguidas antes de reiniciar: uma única requisição lenta sob carga
+            # não deve derrubar um pod que está só ocupado.
+            failureThreshold: 3

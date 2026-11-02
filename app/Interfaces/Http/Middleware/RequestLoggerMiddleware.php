@@ -28,6 +28,15 @@ use Throwable;
  */
 class RequestLoggerMiddleware
 {
+    /**
+     * Valor de `route` quando a requisição não casou com nenhuma rota (um 404, em geral).
+     *
+     * Não é `null` de propósito: no LogQL, `| json` converte `null` em string vazia, e um
+     * `by (route)` agruparia essas linhas numa série sem nome (`{}`) no gráfico. Com um
+     * valor explícito a série se identifica sozinha e continua separada das rotas reais.
+     */
+    public const UNMATCHED_ROUTE = 'unmatched';
+
     public function __construct(private readonly RequestContext $context)
     {
     }
@@ -43,11 +52,15 @@ class RequestLoggerMiddleware
         $path = '/' . ltrim($request->path(), '/');
         $route = $request->route();
 
+        if ($this->isRuidoDeSonda($request, $status)) {
+            return;
+        }
+
         Log::log($this->levelFor($status), sprintf('%s %s %d', $request->getMethod(), $path, $status), [
             'event' => 'http_request',
             'method' => $request->getMethod(),
             'path' => $path,
-            'route' => $route instanceof Route ? $route->uri() : null,
+            'route' => $route instanceof Route ? $route->uri() : self::UNMATCHED_ROUTE,
             'status' => $status,
             'duration_ms' => round($this->context->elapsedMs(), 1),
             // Mesmo nome de campo que o access log do Nginx usa.
@@ -56,6 +69,19 @@ class RequestLoggerMiddleware
             'user_agent' => mb_substr((string) $request->userAgent(), 0, 200),
             'user_id' => $this->userId(),
         ]);
+    }
+
+    /**
+     * As probes do Kubernetes consultam as sondas de saúde a cada 10 segundos em cada pod.
+     * Registrar todas as que **passaram** encheria a cota de ingestão com linhas que só
+     * dizem "continua tudo bem" — é o mesmo motivo pelo qual o `/nginx_status` ficou fora
+     * do access log do Nginx.
+     *
+     * Sonda que **falhou** continua sendo registrada: é aí que a linha tem valor, e é raro.
+     */
+    private function isRuidoDeSonda(Request $request, int $status): bool
+    {
+        return $status < 400 && $request->is('api/health', 'api/health/*');
     }
 
     /**
