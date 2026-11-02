@@ -7,6 +7,7 @@ use App\Domain\ServiceOrder\Exceptions\ServiceOrderNotFoundException;
 use App\Domain\ServiceOrder\Repositories\ServiceOrderRepositoryInterface;
 use App\Domain\ServiceOrder\Security\OrderApprovalTokenSigner;
 use App\Domain\Vehicule\Repositories\VehiculeRepositoryInterface;
+use App\Infrastructure\Observability\ServiceOrderEvents;
 use Illuminate\Support\Facades\DB;
 
 final class ApproveServiceOrderUseCase
@@ -15,6 +16,7 @@ final class ApproveServiceOrderUseCase
         private readonly ServiceOrderRepositoryInterface $serviceOrderRepository,
         private readonly VehiculeRepositoryInterface $vehiculeRepository,
         private readonly OrderApprovalTokenSigner $tokenSigner,
+        private readonly ServiceOrderEvents $events,
     ) {}
 
     public function execute(string $token): void
@@ -38,5 +40,12 @@ final class ApproveServiceOrderUseCase
                 $serviceOrder->getUsersRoleId(),
             );
         });
+
+        // Depois do commit: um evento emitido dentro da transação continuaria no log
+        // mesmo se ela desfizesse tudo, e o painel contaria uma aprovação que não houve.
+        $this->events->approvedByCustomer($serviceOrder->getId(), $vehicule->getCustomerId());
+        // A linha do tempo de status precisa ficar completa: sem isto, um painel que
+        // conta transições não enxergaria as decisões do cliente.
+        $this->events->statusChanged($serviceOrder->getId(), ServiceOrderEntity::STATUS_APROVADA_PELO_CLIENTE);
     }
 }
