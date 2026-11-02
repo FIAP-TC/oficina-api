@@ -7,6 +7,7 @@ use App\Domain\ServiceOrder\Entites\ServiceOrderEntity;
 use App\Domain\ServiceOrder\Repositories\ServiceOrderRepositoryInterface;
 use App\Domain\Vehicule\Exceptions\VehiculeNotFoundException;
 use App\Domain\Vehicule\Repositories\VehiculeRepositoryInterface;
+use App\Infrastructure\Observability\ServiceOrderEvents;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -18,6 +19,7 @@ final class CreateServiceOrderUseCase
     public function __construct(
         private readonly ServiceOrderRepositoryInterface $serviceOrderRepository,
         private readonly VehiculeRepositoryInterface $vehiculeRepository,
+        private readonly ServiceOrderEvents $events,
     ) {}
 
     public function execute(ServiceOrderDTO $dto): ServiceOrderEntity
@@ -28,7 +30,7 @@ final class CreateServiceOrderUseCase
             throw VehiculeNotFoundException::withId($dto->vehiculesId);
         }
 
-        return DB::transaction(function () use ($dto, $vehicule) {
+        $order = DB::transaction(function () use ($dto, $vehicule) {
             $order = $this->serviceOrderRepository->create([
                 'users_id'      => $dto->usersId,
                 'users_role_id' => $dto->usersRoleId,
@@ -49,5 +51,12 @@ final class CreateServiceOrderUseCase
 
             return $this->serviceOrderRepository->findByIdIgnoringStatus($order->getId());
         });
+
+        // Depois do commit, de propósito: um evento emitido dentro da transação continuaria
+        // no log mesmo se ela desfizesse tudo, e o painel contaria uma ordem que não existe.
+        $this->events->created($order->getId(), $order->getOrderValue());
+        $this->events->statusChanged($order->getId(), ServiceOrderEntity::STATUS_RECEBIDA);
+
+        return $order;
     }
 }

@@ -14,6 +14,7 @@ as decisões de cada fase, e as alternativas descartadas, estão em
 - [Sondas de saúde](#sondas-de-saúde)
 - [Como ler os logs](#como-ler-os-logs)
 - [Registrando um evento novo](#registrando-um-evento-novo)
+  - [Os eventos de negócio da ordem de serviço](#os-eventos-de-negócio-da-ordem-de-serviço)
 - [Onde cada peça fica](#onde-cada-peça-fica)
 - [Limites conhecidos](#limites-conhecidos)
 
@@ -272,7 +273,53 @@ Três cuidados:
 - Dados pessoais podem ir no contexto: o mascaramento é automático. Mas o melhor é não
   precisar deles — prefira o id a um nome ou documento.
 
-É esta convenção que a **fase 4** (eventos de negócio da ordem de serviço e alertas) vai usar.
+### Os eventos de negócio da ordem de serviço
+
+Os eventos da OS não são escritos com `Log::info` solto: eles ficam em
+[`ServiceOrderEvents`](../app/Infrastructure/Observability/ServiceOrderEvents.php), uma classe
+só com métodos tipados. Dois motivos:
+
+1. **Os nomes são contrato.** Painel e alerta no Grafana filtram por
+   `event="service_order_status_changed"`. Um erro de digitação num caso de uso não quebra
+   teste nenhum — só faz um painel parar de contar, em silêncio.
+2. **O Grafana Cloud não alcança o RDS** (o banco só aceita conexão de dentro da VPC). Os
+   painéis de negócio são calculados a partir destes eventos, não de SQL: **o log é a fonte
+   de dados do dashboard.**
+
+| Evento | Quando | Campos próprios |
+|---|---|---|
+| `service_order_created` | ordem aberta | `service_order_id`, `order_value` |
+| `service_order_status_changed` | a cada mudança de status | `status`, `status_id`, `time_average_minutes` |
+| `service_order_approval_requested` | e-mail de aprovação enviado | `customer_id` |
+| `service_order_approval_request_failed` | falha ao enviar (nível `error`) | `customer_id`, `failure_class` |
+| `service_order_approved_by_customer` | cliente aprovou | `customer_id` |
+| `service_order_rejected_by_customer` | cliente reprovou | `customer_id` |
+
+Três decisões que valem explicar:
+
+- **O status vai por nome** (`aguardando_aprovacao`), não só por id. Um painel de "tempo médio
+  por status" com a legenda "3" não diz nada. O mapa está em
+  `ServiceOrderEntity::STATUS_NAMES`, e há teste garantindo que todo status do domínio tem
+  nome — sem ele, um status novo apareceria como `desconhecido` no Grafana.
+- **O evento sai depois do commit**, nunca de dentro da transação. Um evento emitido dentro
+  continuaria no log mesmo se a transação desfizesse tudo, e o painel contaria uma ordem que
+  não existe.
+- **Nenhum dado pessoal**, só identificadores internos. A falha de integração guarda a
+  **classe** da exceção, não a mensagem: mensagem de erro de SMTP costuma trazer o e-mail do
+  destinatário. Há teste cobrindo cada um desses pontos.
+
+Consultas que estes eventos habilitam:
+
+```logql
+# volume diário de ordens abertas
+sum(count_over_time({namespace="fiap-tc-1", container="api"} | json | event="service_order_created" [24h]))
+
+# tempo médio por status
+avg_over_time({namespace="fiap-tc-1", container="api"} | json | event="service_order_status_changed" | unwrap time_average_minutes [1h]) by (status)
+
+# falhas de integração (base do alerta)
+sum(count_over_time({namespace="fiap-tc-1", container="api"} | json | event="service_order_approval_request_failed" [5m]))
+```
 
 ## Onde cada peça fica
 
@@ -289,6 +336,7 @@ Três cuidados:
 | `app/Interfaces/Http/Middleware/RequestLoggerMiddleware.php` | registra a linha `http_request`, depois da resposta; deixa de fora a sonda que passou |
 | `app/Interfaces/Http/Controllers/Health/LivenessController.php` | sonda de vida: só prova que o PHP executa e o Laravel sobe |
 | `app/Interfaces/Http/Controllers/Health/ReadinessController.php` | sonda de prontidão: checa o banco e responde 503 se ele não responde |
+| `app/Infrastructure/Observability/ServiceOrderEvents.php` | os eventos de negócio da OS, com os nomes que painel e alerta filtram |
 | `k8s/base/06-api-deployment.yaml` | as probes por `exec` com `cgi-fcgi`, que falam FastCGI com a porta 9000 |
 | `docker/php-fmp/Dockerfile` | instala o pacote `fcgi`, que traz o cliente usado pelas probes |
 | `docker/nginx/sites-enabled/laravel.conf` | access log em JSON, identificador de correlação, `/nginx_status` fora do log |

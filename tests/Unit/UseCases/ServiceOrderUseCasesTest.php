@@ -19,6 +19,7 @@ use App\Domain\ServiceOrder\Exceptions\ServiceOrderNotFoundException;
 use App\Domain\ServiceOrder\Repositories\ServiceOrderRepositoryInterface;
 use App\Domain\Vehicule\Entites\VehiculeEntity;
 use App\Domain\Vehicule\Repositories\VehiculeRepositoryInterface;
+use App\Infrastructure\Observability\ServiceOrderEvents;
 use Illuminate\Support\Facades\DB;
 use Mockery;
 use Tests\TestCase;
@@ -132,7 +133,7 @@ class ServiceOrderUseCasesTest extends TestCase
         $this->orderRepo->shouldReceive('findByIdIgnoringStatus')->with(1)->andReturn($fresh);
 
         $dto = new ServiceOrderDTO(usersId: 1, usersRoleId: 1, vehiculesId: 5);
-        $result = (new CreateServiceOrderUseCase($this->orderRepo, $this->vehiculeRepo))->execute($dto);
+        $result = (new CreateServiceOrderUseCase($this->orderRepo, $this->vehiculeRepo, new ServiceOrderEvents()))->execute($dto);
 
         $this->assertInstanceOf(ServiceOrderEntity::class, $result);
         $this->assertEquals(0.00, $result->getOrderValue());
