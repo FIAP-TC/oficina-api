@@ -21,6 +21,9 @@
         <server name="APP_ENV" value="testing"/>
         <server name="BCRYPT_ROUNDS" value="4"/>
         <server name="CACHE_DRIVER" value="array"/>
+        <!-- Sem log durante os testes: o canal padrão escreve JSON em stderr e
+             poluiria a saída do phpunit com uma linha por requisição. -->
+        <server name="LOG_CHANNEL" value="null"/>
         <server name="DB_CONNECTION" value="mysql"/>
         <env name="DB_HOST" value="database" force="false"/>
         <server name="DB_DATABASE" value="fiap_mecanica"/>

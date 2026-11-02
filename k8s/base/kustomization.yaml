@@ -10,7 +10,6 @@ resources:
   - 05-mysql-service.yaml
   - 06-api-deployment.yaml
   - 07-api-service.yaml
-  - 08-nginx-configmap.yaml
   - 09-nginx-deployment.yaml
   - 10-nginx-service.yaml
   - 11-api-hpa.yaml
@@ -18,3 +17,18 @@ resources:
   - 13-mailpit-service.yaml
   - 14-ingress.yaml
   - 15-api-migrate-job.yaml
+
+# A configuração do Nginx vive em arquivos .conf de verdade (as mesmas duas cópias que o
+# Docker Compose monta), e não embutida em YAML: dá para validar com `nginx -t` e para
+# comparar as cópias com `diff`, o que o pipeline faz.
+#
+# O kustomize acrescenta um hash do conteúdo ao nome do ConfigMap e reescreve a referência
+# no Deployment do Nginx. Efeito prático: mudar a configuração troca o nome do ConfigMap, o
+# Deployment muda e o Kubernetes reinicia o pod sozinho. Sem isso, um ConfigMap montado com
+# `subPath` (é o caso aqui) nunca é atualizado dentro de um pod que já está rodando.
+configMapGenerator:
+  - name: nginx-config
+    namespace: fiap-tc-1
+    files:
+      - nginx/default.conf
+      - nginx/laravel.conf

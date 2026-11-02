@@ -98,6 +98,18 @@ A análise está configurada para varrer os domínios críticos da aplicação. 
 docker-compose exec api ./vendor/bin/phpstan analyse --memory-limit=-1
 ```
 
+## Observabilidade
+
+Os logs da aplicação e do Nginx saem em **JSON, uma linha por registro**, na saída padrão do
+container, com um identificador de correlação por requisição (`X-Request-Id`) e com CPF,
+e-mail e token mascarados antes de serem escritos. O detalhamento — os campos de cada linha,
+como ler no local, no cluster e no Grafana, e a convenção para registrar eventos novos — está
+em [`docs/OBSERVABILIDADE.md`](docs/OBSERVABILIDADE.md).
+
+```bash
+docker compose logs -f --no-log-prefix api | jq -c '{level,event,route,status,duration_ms,request_id}'
+```
+
 ## Infraestrutura, Kubernetes e Terraform
 
 A documentação de infraestrutura (arquitetura, Kubernetes local/AWS, provisionamento via Terraform e CI/CD) está em [`docs/INFRAESTRUTURA.md`](docs/INFRAESTRUTURA.md).
