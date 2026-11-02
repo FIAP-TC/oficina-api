@@ -5,8 +5,13 @@ metadata:
   namespace: fiap-tc-1
 data:
   APP_NAME: "mecanica"
-  APP_ENV: "local"
-  APP_DEBUG: "true"
+  APP_ENV: "production"
+  # Com depuração ligada, uma exceção devolve a mensagem e o stack trace no **corpo da
+  # resposta HTTP**, e o mascaramento de dados pessoais cobre só o log. Além disso a
+  # resposta fica grande, não cabe nos buffers do Nginx e provoca um aviso no log de erro
+  # dele que inclui a query string. Desligado, a resposta de erro é genérica; o detalhe
+  # continua no log, em JSON e mascarado.
+  APP_DEBUG: "false"
   APP_URL: "http://localhost"
   # Log em uma linha de JSON por registro, na saída padrão do container, que é de onde
   # o Grafana Alloy coleta. Ver config/logging.php e JsonLoggerFactory.

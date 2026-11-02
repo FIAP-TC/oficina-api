@@ -104,7 +104,7 @@ Na prática, para investigar um erro relatado por um cliente:
 | O que | Por quê |
 |---|---|
 | Corpo da requisição | é onde estão CPF, e-mail e senha; não há caso de uso que justifique o risco |
-| Query string | carrega o token de aprovação da ordem de serviço (`GET /api/service-orders/approve?token=...`). O Nginx registra só o caminho, antes do `?` |
+| Query string | carrega o token de aprovação da ordem de serviço (`GET /api/service-orders/approve?token=...`). O Nginx registra só o caminho, antes do `?` — **no access log**; o log de erro dele é exceção, ver [Limites conhecidos](#limites-conhecidos) |
 | Senha, token, chave (`password`, `token`, `authorization`, `jwt`, `secret`, `api_key`...) | substituídos por `[REDACTED]`, pelo nome do campo, em qualquer profundidade |
 | CPF e CNPJ | ficam `***.***.***-01` e `**.***.***/****-34`. Pegos pelo nome do campo (`cpf`, `identification_number`) **e** pelo formato, em qualquer texto |
 | E-mail | fica `j***@exemplo.com` |
@@ -248,9 +248,14 @@ compara as duas com `diff` e falha se divergirem, então a duplicação não pas
   permite falsificar o IP de origem.
 - **Duas linhas por requisição.** É o custo de ter latência de fora e contexto de dentro. As
   probes e o access log do PHP-FPM saíram do caminho em troca.
-- **`APP_DEBUG=true` no ConfigMap do cluster.** Não é assunto desta fase, mas vale registrar:
-  com depuração ligada, uma exceção devolve o stack trace **na resposta HTTP**, e o
-  mascaramento aqui só cobre o log. Mudar para `false` é recomendado.
+- **O log de erro do Nginx pode registrar a query string.** O access log registra só o
+  caminho, mas o log de erro é outro: texto puro, formato do próprio Nginx, e cada linha
+  inclui a requisição original — com query. Num teste no cluster, o aviso "an upstream
+  response is buffered to a temporary file" levou o token de aprovação para o log. O nível do
+  log de erro foi baixado para `error` e os buffers de FastCGI foram aumentados, então o aviso
+  não acontece mais; mas uma linha de `[error]` de verdade continua carregando a query string.
+  A correção definitiva é o token sair da query string (cabeçalho ou corpo), o que muda o
+  contrato da API e está em aberto. Enquanto isso: **não coloque segredo em query string.**
 - **Nada de métricas ainda.** Latência e contagem são calculadas a partir dos logs, que é o
   que a fase 2 entrega. Health check e probes de HTTP são a fase 3; dashboards prontos, a
   fase 5.
