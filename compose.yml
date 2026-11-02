@@ -50,6 +50,7 @@ services:
     
 networks:
   private_network:
+    name: mecanica_private_network
     driver: bridge
 
 volumes:
