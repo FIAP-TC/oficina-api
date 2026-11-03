@@ -33,4 +33,11 @@ return [
     'order_approval' => [
         'secret' => env('APPROVAL_SECRET')
     ],
+
+    // Chave simétrica que assina o JWT de cliente, emitido pela auth-lambda. Precisa ser
+    // igual ao jwt_secret dela — é a mesma chave assinando lá e verificando aqui (ver
+    // ADR-0005). Independente do JWT_SECRET usado pelo tymon/jwt-auth para funcionário.
+    'auth_lambda' => [
+        'jwt_secret' => env('AUTH_LAMBDA_JWT_SECRET'),
+    ],
 ];

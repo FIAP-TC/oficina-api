@@ -289,6 +289,8 @@ jobs:
           APP_KEY: ${{ secrets.SECRET_APP_KEY }}
           JWT_SECRET: ${{ secrets.SECRET_JWT_SECRET }}
           APPROVAL_SECRET: ${{ secrets.SECRET_APPROVAL_SECRET }}
+          # Precisa ser igual ao jwt_secret do terraform.tfvars da auth-lambda — ver ADR-0005.
+          AUTH_LAMBDA_JWT_SECRET: ${{ secrets.SECRET_AUTH_LAMBDA_JWT_SECRET }}
         run: |
           kubectl create secret generic app-secret \
             --namespace="$K8S_NAMESPACE" \
@@ -299,6 +301,7 @@ jobs:
             --from-literal=APP_KEY="$APP_KEY" \
             --from-literal=JWT_SECRET="$JWT_SECRET" \
             --from-literal=APPROVAL_SECRET="$APPROVAL_SECRET" \
+            --from-literal=AUTH_LAMBDA_JWT_SECRET="$AUTH_LAMBDA_JWT_SECRET" \
             --dry-run=client -o yaml > k8s/base/02-secret.yaml
 
       - name: Definir a tag da imagem no overlay da AWS
