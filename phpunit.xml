@@ -30,6 +30,7 @@
         <env name="DB_USERNAME" value="root" force="false"/>
         <env name="DB_PASSWORD" value="root" force="false"/>
         <server name="JWT_SECRET" value="test-secret-key-for-phpunit-at-least-32-chars"/>
+        <server name="AUTH_LAMBDA_JWT_SECRET" value="test-auth-lambda-secret-for-phpunit"/>
         <server name="MAIL_MAILER" value="array"/>
         <server name="QUEUE_CONNECTION" value="sync"/>
         <server name="SESSION_DRIVER" value="array"/>

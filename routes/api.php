@@ -76,6 +76,11 @@ Route::prefix('test')->group(function () {
 Route::prefix('service-orders')->group(function () {
     Route::get('/approve', ApproveServiceOrderController::class);
     Route::get('/reject', RejectServiceOrderController::class);
+});
+
+// Rota exclusiva de cliente: autenticado via CPF pela auth-lambda (ver
+// CustomerJwtMiddleware). Só o dono do veículo da ordem consegue consultar.
+Route::middleware('customer.jwt')->prefix('service-orders')->group(function () {
     Route::get('/{orderId}/track/status', ServiceOrderTrackingController::class);
 });
 
