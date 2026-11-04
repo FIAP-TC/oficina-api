@@ -27,7 +27,7 @@ class VehiculeResource extends JsonResource
             'customer_id' => $vehicule->getCustomerId(),
             'created_at'  => $vehicule->getCreatedAt()?->format('Y-m-d H:i:s'),
             'updated_at'  => $vehicule->getModifiedDate()?->format('Y-m-d H:i:s'),
-            'customer'    => CustomerResource::make($vehicule->getCustomer() ?? []),
+            'customer'    => $vehicule->getCustomer() ? CustomerResource::make($vehicule->getCustomer()) : null,
         ];
     }
 }
